@@ -17,6 +17,7 @@ type Server struct {
 type Context struct {
 	store *Store
 	wal   *Wal
+	api   *API
 }
 
 // NewServer creates a new server instance
@@ -28,10 +29,12 @@ func NewServer(cfg Config) *Server {
 	}
 
 	wal := NewWal(cfg["name"], cfg["broker"], store)
+	api := NewAPI()
 
 	ctx := Context{
 		store: store,
 		wal:   wal,
+		api:   api,
 	}
 
 	fmt.Printf("Store for %s", cfg["name"])
@@ -45,6 +48,7 @@ func NewServer(cfg Config) *Server {
 // Start starts the server
 func (s *Server) Start() {
 	s.context.wal.Start()
+	s.context.api.Start()
 }
 
 // Stop shuts down the server
@@ -55,5 +59,9 @@ func (s *Server) Stop() {
 
 	if s.context.wal != nil {
 		s.context.wal.Stop()
+	}
+
+	if s.context.api != nil {
+		s.context.api.Stop()
 	}
 }
