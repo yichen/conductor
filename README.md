@@ -1,1 +1,1 @@
-# conductor
+# Conductor: Simple Workflow Engine #

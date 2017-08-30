@@ -1,0 +1,14 @@
+syntax = "proto3";
+package server;
+
+service JobService {
+    // Add a new job
+    rpc AddJob(Job) returns (Job) {}
+}
+
+message Job {
+    string workflow = 1;
+    string name = 2;
+    string state = 3;
+    string data = 4;
+}
