@@ -30,6 +30,12 @@ func NewMemStore(size int) *MemStore {
 	}
 }
 
+// Start will start the memstore service, which will read the WAL,
+// remove older entry when nessessary.
+func (m *MemStore) Start() {
+
+}
+
 // Offer adds a new job to the mem store. If the job already exists with
 // a different state
 func (m *MemStore) Offer(workflow string, state string, job Job) {
@@ -71,4 +77,12 @@ func (m *MemStore) Poll(workflow string, state string) *Job {
 
 	j := q.Poll()
 	return &j
+}
+
+// Stop stops the memstore service. It is called when the server is
+// gracefully shutdown.
+func (m *MemStore) Stop() {
+	m.checkpoint = ""
+	m.queues = make(map[string]map[string]*Queue)
+	m.jobStateMap = make(map[string]string)
 }
