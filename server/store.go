@@ -4,6 +4,8 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/golang/protobuf/proto"
+
 	"github.com/tecbot/gorocksdb"
 )
 
@@ -57,6 +59,25 @@ func (s *Store) Open() error {
 // AppendWAL appends a Kafka message to the WAL CF.
 func (s *Store) AppendWAL(key []byte, value []byte) {
 	s.db.PutCF(s.walWriteOpt, s.cfh[1], key, value)
+}
+
+func (s *Store) ReadWAL(offset string) {
+	ro := gorocksdb.NewDefaultReadOptions()
+	iter := s.db.NewIteratorCF(ro, s.cfh[1])
+
+	if offset == "" {
+		iter.SeekToFirst()
+	} else {
+		iter.SeekForPrev([]byte(offset))
+	}
+
+	for ; iter.Valid(); iter.Next() {
+		key := iter.Key().Data()
+		value := iter.Value().Data()
+		var job Job
+		proto.Unmarshal(value, &job)
+	}
+
 }
 
 // Close closes the storage engine
