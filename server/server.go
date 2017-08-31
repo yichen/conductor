@@ -47,12 +47,15 @@ func NewServer(cfg Config) *Server {
 
 // Start starts the server
 func (s *Server) Start() {
+	fmt.Println("Starting server...")
 	s.context.wal.Start()
 	s.context.api.Start()
 }
 
 // Stop shuts down the server
 func (s *Server) Stop() {
+	fmt.Println("Stopping server...")
+
 	if s.context.store != nil {
 		s.context.store.Close()
 	}
