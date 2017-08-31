@@ -1,17 +1,27 @@
 package server
 
 import (
-	"io/ioutil"
 	"os"
+	"path/filepath"
+	"sync"
 
 	"github.com/golang/protobuf/proto"
 
 	"github.com/tecbot/gorocksdb"
 )
 
-// Store is the local RocksDB storage manager
+const (
+	jobStateInit = iota
+	jobStateProcessing
+)
+
+// Store manages everything related to RocksDB. It incldues reading and building
+// the store from Kafka, reblance the store from Kafka, and reading/querying
+// the store for the clients
 type Store struct {
+	// name is the unique name for the cluster
 	name string
+	// path is the parent directory for all rocksdb databases.
 	path string
 
 	db          *gorocksdb.DB
@@ -24,14 +34,17 @@ type Store struct {
 	// read chanel from WAL
 	walCh     chan *Job
 	walOffset string
+
+	// workflowCFHandleMap maps from the name of workflow to a ColumnFamily
+	workflowCFHandleMap map[string]*gorocksdb.ColumnFamilyHandle
+	// cfMapLock synchronizes access to workflowCFHandleMap
+	workflowCFHandleMapLock sync.RWMutex
 }
 
-// NewStore creates a new RocksDB database
-func NewStore(name string) *Store {
-	p, err := ioutil.TempDir("", "conductor")
-	if err != nil {
-		return nil
-	}
+// NewStore creates a new RocksDB database for the cluster name
+// at a location specified by path.
+func NewStore(name string, path string, broker string) *Store {
+	p := filepath.Join(path, name)
 	_ = os.Mkdir(p, os.ModePerm)
 
 	return &Store{
@@ -57,6 +70,64 @@ func (s *Store) Open() error {
 	s.db = db
 	s.cfh = cfh
 	s.walWriteOpt = gorocksdb.NewDefaultWriteOptions()
+
+	return nil
+}
+
+func (s *Store) open() {
+	opts := gorocksdb.NewDefaultOptions()
+	opts.SetCreateIfMissing(true)
+	opts.SetCreateIfMissingColumnFamilies(true)
+
+	db, err := gorocksdb.OpenDb(opts, filepath.Join(s.path, s.name))
+	if err != nil {
+		panic(err)
+	}
+	s.db = db
+	s.walWriteOpt = gorocksdb.NewDefaultWriteOptions()
+}
+
+// AddJob adds a job from Kafka to storage. Each workflow has its own
+// column family, and the colun family is dynamically allocated.
+func (s *Store) AddJob(data []byte) error {
+	var job Job
+	if err := proto.Unmarshal(data, &job); err != nil {
+		return err
+	}
+
+	if err := s.createCFIfMissing(job.Workflow); err != nil {
+		return err
+	}
+
+	s.workflowCFHandleMapLock.RLock()
+	cf := s.workflowCFHandleMap[job.Workflow]
+	s.workflowCFHandleMapLock.RUnlock()
+
+	if err := s.db.PutCF(s.walWriteOpt, cf, []byte(job.Name), data); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Store) createCFIfMissing(workflow string) error {
+	s.workflowCFHandleMapLock.RLock()
+	_, ok := s.workflowCFHandleMap[workflow]
+	s.workflowCFHandleMapLock.RUnlock()
+
+	if !ok {
+		opts := gorocksdb.NewDefaultOptions()
+		opts.SetCreateIfMissing(true)
+		opts.SetCreateIfMissingColumnFamilies(true)
+
+		cf, err := s.db.CreateColumnFamily(opts, workflow)
+		if err != nil {
+			return err
+		}
+		s.workflowCFHandleMapLock.Lock()
+		s.workflowCFHandleMap[workflow] = cf
+		s.workflowCFHandleMapLock.Unlock()
+	}
 
 	return nil
 }
@@ -103,9 +174,11 @@ func (s *Store) Close() {
 		s.walWriteOpt = nil
 	}
 
-	for _, i := range s.cfh {
-		i.Destroy()
+	s.workflowCFHandleMapLock.Lock()
+	for _, cf := range s.workflowCFHandleMap {
+		cf.Destroy()
 	}
+	s.workflowCFHandleMapLock.Unlock()
 
 	close(s.walCh)
 }
