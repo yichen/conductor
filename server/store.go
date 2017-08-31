@@ -22,7 +22,8 @@ type Store struct {
 	cfh []*gorocksdb.ColumnFamilyHandle
 
 	// read chanel from WAL
-	walCh chan *Job
+	walCh     chan *Job
+	walOffset string
 }
 
 // NewStore creates a new RocksDB database
@@ -65,23 +66,34 @@ func (s *Store) AppendWAL(key []byte, value []byte) {
 	s.db.PutCF(s.walWriteOpt, s.cfh[1], key, value)
 }
 
-func (s *Store) ReadWAL(offset string) {
+// ReadWAL reads WAL by the order and send the result to
+// the read channel walCh.
+func (s *Store) ReadWAL() {
 	ro := gorocksdb.NewDefaultReadOptions()
 	iter := s.db.NewIteratorCF(ro, s.cfh[1])
 
-	if offset == "" {
+	if s.walOffset == "" {
 		iter.SeekToFirst()
 	} else {
-		iter.SeekForPrev([]byte(offset))
+		iter.SeekForPrev([]byte(s.walOffset))
 	}
 
+	batchSize := 100
+	current := 0
+	var key []byte
 	for ; iter.Valid(); iter.Next() {
+		key = iter.Key().Data()
 		value := iter.Value().Data()
 		var job Job
 		proto.Unmarshal(value, &job)
 		s.walCh <- &job
+		if current >= batchSize {
+			current -= batchSize
+			s.walOffset = string(key)
+		}
 	}
 
+	s.walOffset = string(key)
 }
 
 // Close closes the storage engine
