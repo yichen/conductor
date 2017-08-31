@@ -85,7 +85,7 @@ func (w *Wal) runWal() {
 					e.TopicPartition, string(e.Value))
 
 				// store the data in RocksDB, ordered by Kafka message timestamp
-				key := fmt.Sprintf("%s:%d", e.Key, e.Timestamp.UnixNano())
+				key := fmt.Sprintf("%s:t:%d", e.Key, e.Timestamp.UnixNano())
 				w.store.AppendWAL([]byte(key), e.Value)
 
 			case kafka.Error:

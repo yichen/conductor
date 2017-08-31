@@ -20,6 +20,9 @@ type Store struct {
 	// column family names
 	cf  []string
 	cfh []*gorocksdb.ColumnFamilyHandle
+
+	// read chanel from WAL
+	walCh chan *Job
 }
 
 // NewStore creates a new RocksDB database
@@ -31,9 +34,10 @@ func NewStore(name string) *Store {
 	_ = os.Mkdir(p, os.ModePerm)
 
 	return &Store{
-		name: name,
-		cf:   []string{"default", "wal"},
-		path: p,
+		name:  name,
+		cf:    []string{"default", "wal"},
+		path:  p,
+		walCh: make(chan *Job, 1),
 	}
 }
 
@@ -72,10 +76,10 @@ func (s *Store) ReadWAL(offset string) {
 	}
 
 	for ; iter.Valid(); iter.Next() {
-		key := iter.Key().Data()
 		value := iter.Value().Data()
 		var job Job
 		proto.Unmarshal(value, &job)
+		s.walCh <- &job
 	}
 
 }
@@ -90,4 +94,6 @@ func (s *Store) Close() {
 	for _, i := range s.cfh {
 		i.Destroy()
 	}
+
+	close(s.walCh)
 }
